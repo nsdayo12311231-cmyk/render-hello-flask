@@ -1,0 +1,4 @@
+ocr-estimate-project-*.json
+.env
+__pycache__/
+*.pyc

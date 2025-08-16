@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Todoリスト</title>
+</head>
+<body>
+    <h1>Todoリスト</h1>
+
+    <h2>新しいタスクを追加</h2>
+    <form method="POST" action="/add">
+        <label>タイトル: <input type="text" name="title" required></label><br>
+        <label>内容: <input type="text" name="content" required></label><br>
+        <label>期日: <input type="date" name="due_date" required></label><br>
+        <button type="submit">追加</button>
+    </form>
+
+    <h2>登録済みタスク一覧</h2>
+    <ul>
+        {% for task in tasks %}
+        <li>
+            <strong>{{ task.title }}</strong> - {{ task.content }} (期日: {{ task.due_date }})
+            <a href="/edit/{{ loop.index0 }}">編集</a>
+        </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

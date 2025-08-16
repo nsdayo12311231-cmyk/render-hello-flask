@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>タスク編集</title>
+</head>
+<body>
+    <h1>タスク編集</h1>
+
+    <form method="POST" action="/update/{{ index }}">
+        <label>タイトル: <input type="text" name="title" value="{{ task.title }}" required></label><br>
+        <label>内容: <input type="text" name="content" value="{{ task.content }}" required></label><br>
+        <label>期日: <input type="date" name="due_date" value="{{ task.due_date }}" required></label><br>
+        <button type="submit">更新</button>
+    </form>
+
+    <p><a href="/">戻る</a></p>
+</body>
+</html>
