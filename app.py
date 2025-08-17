@@ -1,70 +1,99 @@
-from flask import Flask, render_template, request, redirect, url_for
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import os
+import uuid
 from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, flash
+import gspread
+from google.oauth2 import service_account
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
 
-# = Google Sheets 接続 =
-# 環境変数 SPREADSHEET_ID を使います（Render で設定）
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
-# サービスアカウント JSON は Render の Secret Files 経由で /etc/secrets/gsheets.json に置く想定
-CREDENTIALS_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json")
+SHEET_ID = os.environ.get("SHEET_ID")
+CREDS_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")  # /etc/secrets/creds.json
 
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_PATH, scope)
-client = gspread.authorize(creds)
-sheet = client.open_by_key(SPREADSHEET_ID).sheet1  # 1枚目のシートを使用
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-# シートのヘッダー想定: title | content | due_date
-def get_all_tasks():
-    records = sheet.get_all_records()
-    # 並び替え（期日が空は一番後ろ）
-    def keyfn(r):
-        return r.get("due_date") or "9999-12-31"
-    return sorted(records, key=keyfn)
+def get_ws():
+    if not (SHEET_ID and CREDS_PATH):
+        raise RuntimeError("SHEET_ID または GOOGLE_APPLICATION_CREDENTIALS が未設定です。")
+    creds = service_account.Credentials.from_service_account_file(CREDS_PATH, scopes=SCOPES)
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(SHEET_ID)
+    ws = sh.sheet1  # 1枚目のシート
+    # ヘッダーなければ作る
+    headers = ws.row_values(1)
+    target = ["id", "title", "content", "due"]
+    if headers[:4] != target:
+        ws.update("A1:D1", [target])
+    return ws
 
-@app.route("/")
+def rows_to_dicts(rows):
+    keys = ["id", "title", "content", "due"]
+    out = []
+    for r in rows:
+        if len(r) < 1 or r[0] in ("", "id"):
+            continue
+        item = {k: (r[i] if i < len(r) else "") for i, k in enumerate(keys)}
+        out.append(item)
+    # 期日順に表示（空は最後）
+    def due_key(x):
+        try:
+            return datetime.fromisoformat(x["due"])
+        except Exception:
+            return datetime.max
+    return sorted(out, key=due_key)
+
+@app.route("/", methods=["GET"])
 def index():
-    tasks = get_all_tasks()
-    return render_template("index.html", tasks=tasks)
+    ws = get_ws()
+    rows = ws.get_all_values()
+    todos = rows_to_dicts(rows[1:])  # ヘッダー除外
+    return render_template("index.html", todos=todos)
 
 @app.route("/add", methods=["POST"])
 def add():
+    ws = get_ws()
     title = request.form.get("title", "").strip()
     content = request.form.get("content", "").strip()
-    due = request.form.get("due_date", "").strip()
-    if not title or not content or not due:
+    due = request.form.get("due", "").strip()  # 例: 2025-08-31
+    if not title:
+        flash("タイトルは必須です")
         return redirect(url_for("index"))
-    sheet.append_row([title, content, due])
+    todo_id = str(uuid.uuid4())
+    ws.append_row([todo_id, title, content, due])
+    flash("追加しました")
     return redirect(url_for("index"))
 
-@app.route("/edit/<int:index>", methods=["GET"])
-def edit(index):
-    # 表示用：1行目ヘッダなので +2 で行番号計算
-    row = sheet.row_values(index + 2)
-    # ヘッダ: title | content | due_date を前提
-    task = {"title": row[0] if len(row) > 0 else "",
-            "content": row[1] if len(row) > 1 else "",
-            "due_date": row[2] if len(row) > 2 else ""}
-    return render_template("edit.html", task=task, index=index)
+@app.route("/edit/<todo_id>", methods=["GET", "POST"])
+def edit(todo_id):
+    ws = get_ws()
+    rows = ws.get_all_values()
+    # 対象行を探す（2行目以降）
+    target_row_idx = None
+    current = None
+    for i, r in enumerate(rows[1:], start=2):
+        if len(r) > 0 and r[0] == todo_id:
+            target_row_idx = i
+            current = {
+                "id": r[0],
+                "title": r[1] if len(r) > 1 else "",
+                "content": r[2] if len(r) > 2 else "",
+                "due": r[3] if len(r) > 3 else "",
+            }
+            break
+    if target_row_idx is None:
+        flash("対象が見つかりませんでした")
+        return redirect(url_for("index"))
 
-@app.route("/update/<int:index>", methods=["POST"])
-def update(index):
-    title = request.form.get("title", "").strip()
-    content = request.form.get("content", "").strip()
-    due = request.form.get("due_date", "").strip()
-    # B2 から始まるわけではなく、A列1-based。index0 の1件目は2行目なので +2
-    rownum = index + 2
-    sheet.update(f"A{rownum}:C{rownum}", [[title, content, due]])
-    return redirect(url_for("index"))
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        content = request.form.get("content", "").strip()
+        due = request.form.get("due", "").strip()
+        if not title:
+            flash("タイトルは必須です")
+            return redirect(url_for("edit", todo_id=todo_id))
+        ws.update(f"A{target_row_idx}:D{target_row_idx}", [[todo_id, title, content, due]])
+        flash("更新しました")
+        return redirect(url_for("index"))
 
-@app.route("/delete/<int:index>", methods=["POST"])
-def delete(index):
-    rownum = index + 2
-    sheet.delete_rows(rownum)
-    return redirect(url_for("index"))
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    return render_template("edit.html", todo=current)

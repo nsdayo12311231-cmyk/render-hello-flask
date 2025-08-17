@@ -1,28 +1,42 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>Todoリスト</title>
-</head>
-<body>
-    <h1>Todoリスト</h1>
+{% extends "base.html" %}
+{% block content %}
+<h2>やること一覧</h2>
+<table>
+  <thead>
+    <tr><th>タイトル</th><th>内容</th><th>期日</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for t in todos %}
+      <tr>
+        <td>{{ t.title }}</td>
+        <td class="muted">{{ t.content }}</td>
+        <td>{{ t.due }}</td>
+        <td><a class="btn" href="{{ url_for('edit', todo_id=t.id) }}">編集</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">まだありません</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
 
-    <h2>新しいタスクを追加</h2>
-    <form method="POST" action="/add">
-        <label>タイトル: <input type="text" name="title" required></label><br>
-        <label>内容: <input type="text" name="content" required></label><br>
-        <label>期日: <input type="date" name="due_date" required></label><br>
-        <button type="submit">追加</button>
-    </form>
-
-    <h2>登録済みタスク一覧</h2>
-    <ul>
-        {% for task in tasks %}
-        <li>
-            <strong>{{ task.title }}</strong> - {{ task.content }} (期日: {{ task.due_date }})
-            <a href="/edit/{{ loop.index0 }}">編集</a>
-        </li>
-        {% endfor %}
-    </ul>
-</body>
-</html>
+<h2 style="margin-top:28px">新規追加</h2>
+<form method="post" action="{{ url_for('add') }}">
+  <div class="row">
+    <div>
+      <label>タイトル</label>
+      <input name="title" required>
+    </div>
+    <div>
+      <label>期日（YYYY-MM-DD）</label>
+      <input name="due" placeholder="2025-08-31">
+    </div>
+  </div>
+  <div style="margin-top:12px">
+    <label>内容</label>
+    <textarea name="content" rows="4"></textarea>
+  </div>
+  <div style="margin-top:12px">
+    <button class="btn" type="submit">追加する</button>
+  </div>
+</form>
+{% endblock %}
