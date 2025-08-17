@@ -1,9 +1,9 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from flask import Flask, render_template, request, redirect, url_for, flash
-import gspread
 from google.oauth2 import service_account
+import gspread
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
@@ -15,40 +15,92 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 def get_ws():
     if not (SHEET_ID and CREDS_PATH):
-        raise RuntimeError("SHEET_ID または GOOGLE_APPLICATION_CREDENTIALS が未設定です。")
+        raise RuntimeError("SHEET_IDまたは GOOGLE_APPLICATION_CREDENTIALS が未設定です。")
     creds = service_account.Credentials.from_service_account_file(CREDS_PATH, scopes=SCOPES)
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(SHEET_ID)
-    ws = sh.sheet1  # 1枚目のシート
-    # ヘッダーなければ作る
-    headers = ws.row_values(1)
-    target = ["id", "title", "content", "due"]
-    if headers[:4] != target:
-        ws.update("A1:D1", [target])
-    return ws
+    return sh.sheet1
 
 def rows_to_dicts(rows):
     keys = ["id", "title", "content", "due"]
-    out = []
-    for r in rows:
+    data = []
+    for r in rows[1:]:
         if len(r) < 1 or r[0] in ("", "id"):
             continue
-        item = {k: (r[i] if i < len(r) else "") for i, k in enumerate(keys)}
-        out.append(item)
-    # 期日順に表示（空は最後）
-    def due_key(x):
-        try:
-            return datetime.fromisoformat(x["due"])
-        except Exception:
-            return datetime.max
-    return sorted(out, key=due_key)
+        data.append(dict(zip(keys, r)))
+    return data
+
+def get_due_status_class(due_str):
+    """期限の状態に基づいてCSSクラスを返す"""
+    if not due_str:
+        return "upcoming"
+    
+    try:
+        due_date = datetime.strptime(due_str, "%Y-%m-%d").date()
+        today = date.today()
+        
+        if due_date < today:
+            return "overdue"
+        elif due_date == today:
+            return "due-today"
+        else:
+            return "upcoming"
+    except ValueError:
+        return "upcoming"
+
+# ▼ ここから追記（既存の import より下ならどこでもOK）
+def _parse_ymd(s: str):
+    """'YYYY-MM-DD' を date に変換。空なら None。"""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def due_status(d):
+    """期日ステータス: overdue / due_today / upcoming / no_due"""
+    if not d:
+        return "no_due"
+    today = date.today()
+    if d < today:
+        return "overdue"
+    if d == today:
+        return "due_today"
+    return "upcoming"
 
 @app.route("/", methods=["GET"])
 def index():
     ws = get_ws()
     rows = ws.get_all_values()
-    todos = rows_to_dicts(rows[1:])  # ヘッダー除外
+    todos = rows_to_dicts(rows)  # ヘッダー除外
     return render_template("index.html", todos=todos)
+
+@app.route("/tasks")
+def tasks():
+    ws = get_ws()
+    rows = ws.get_all_values()  # ヘッダー行＋データ行
+    # 想定ヘッダー: id, title, content, due, (任意で tags も後で追加予定)
+    data = []
+    for r in rows[1:]:
+        if not r or len(r) == 0:
+            continue
+        # 足りない列があっても落ちないように安全に読む
+        rid   = (r[0] if len(r) > 0 else "").strip()
+        title = (r[1] if len(r) > 1 else "").strip()
+        cont  = (r[2] if len(r) > 2 else "").strip()
+        due_s = (r[3] if len(r) > 3 else "").strip()
+        d     = _parse_ymd(due_s)
+        data.append({
+            "id": rid,
+            "title": title,
+            "content": cont,
+            "due_raw": due_s,
+            "due_date": d,
+            "status": due_status(d),
+        })
+
+    return render_template("tasks.html", tasks=data, today=date.today())
 
 @app.route("/add", methods=["POST"])
 def add():
