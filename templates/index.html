@@ -15,6 +15,7 @@
     .group label { display:block; font-size:14px; color:#444; margin-bottom:6px; }
     .group input[type="text"],
     .group input[type="date"],
+    .group input[type="datetime-local"],
     .group input[type="number"],
     .group textarea {
       width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; font-size:16px;
@@ -41,22 +42,21 @@
 
       <div class="row">
         <div class="group">
-          <label for="due_date">期日</label>
-          <!-- HTMLのdate入力（空でも可） -->
-          <input id="due_date" name="due_date" type="date" />
+          <label for="due">期限設定</label>
+          <input id="due" name="due" type="date" />
           <div class="hint">例：2025-08-31</div>
         </div>
 
         <div class="group">
-          <label for="reminder">通知（分）</label>
-          <input id="reminder" name="reminder" type="number" min="0" step="1" placeholder="例：60" />
-          <div class="hint">0 または空欄で通知なし。例：60 = 60分後に通知予定（※将来機能）</div>
+          <label for="reminder">通知設定</label>
+          <input id="reminder" name="reminder" type="datetime-local" />
+          <div class="hint">通知したい日時を選択してください</div>
         </div>
       </div>
 
       <div class="group">
-        <label for="tags">タグ（カンマ区切り）</label>
-        <input id="tags" name="tags" type="text" placeholder="例：仕事, 緊急, クライアントA" />
+        <label for="tags">タグ入力</label>
+        <input id="tags" name="tags" type="text" placeholder="例: 仕事, 個人" />
         <div class="hint">複数ある場合は「,（カンマ）」で区切ってください。</div>
       </div>
 
