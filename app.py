@@ -54,6 +54,15 @@ def rows_to_dicts(rows):
         data.append(dict(zip(keys, r[:len(keys)])))
     return data
 
+def parse_ymd(s: str):
+    """'YYYY-MM-DD' を date に。空/不正は None。"""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
 
 
 @app.route("/", methods=["GET"])
@@ -85,7 +94,7 @@ def tasks():
         tags  = (r[4] if len(r) > 4 else "").strip()
         reminder = (r[5] if len(r) > 5 else "").strip()
         
-        d = _parse_ymd(due_s)
+        d = parse_ymd(due_s)
         
         # タグをリストに変換
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
