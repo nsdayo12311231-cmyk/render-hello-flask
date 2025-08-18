@@ -65,37 +65,41 @@ def slack_notify(text: str) -> bool:
     except Exception:
         return False
 
-# 期限リマインドを手動/cronで叩く用のエンドポイント
-@app.get("/notify")
-def notify():
-    # 簡易キーで保護
-    expect = os.environ.get("NOTIFY_KEY", "")
-    got = request.args.get("key", "")
-    if expect and got != expect:
-        return ("forbidden", 403)
 
-    ws = get_ws()
-    rows = ws.get_all_values()
-    due = list_due_tasks(rows, days_ahead=1)  # 今日〜明日
-
-    if not due:
-        slack_notify(":white_check_mark: 期限が近いタスクはありません。")
-        return {"sent": True, "count": 0}
-
-    lines = [":alarm_clock: *期限が近いタスク*（今日〜明日）"]
-    for t in due:
-        title = t.get("title", "")
-        due_s = t.get("due", "-")
-        tags = t.get("tags", "")
-        tag_view = f" | タグ: {tags}" if tags else ""
-        lines.append(f"• {title}（期限: {due_s}{tag_view}）")
-
-    slack_notify("\n".join(lines))
-    return {"sent": True, "count": len(due)}
-# === 追記ここまで ===
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
+
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+
+# Slack通知（リマインド）
+@app.route("/notify")
+def notify():
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not webhook_url:
+        return "SLACK_WEBHOOK_URL not set", 500
+
+    ws = get_ws()
+    rows = ws.get_all_values()
+    tasks = rows_to_dicts(rows)
+    today = date.today()
+
+    messages = []
+    for task in tasks:
+        if task.get("due"):
+            due_date = parse_ymd_safe(task["due"])
+            if due_date:
+                days_left = (due_date - today).days
+                if days_left == 1:  # 期限前日
+                    tags = task.get("tags", "")
+                    tag_display = f" (タグ: {', '.join(tags) if isinstance(tags, list) else tags})" if tags else ""
+                    messages.append(f"⚠️ 明日が期限のタスク: {task['title']}{tag_display}")
+
+    if messages:
+        payload = {"text": "\n".join(messages)}
+        requests.post(webhook_url, json=payload)
+        return "通知を送信しました"
+    return "通知するタスクはありません"
 
 SHEET_ID = os.environ.get("SHEET_ID")
 CREDS_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")  # /etc/secrets/creds.json
@@ -148,10 +152,24 @@ def index():
     ws = get_ws()
     rows = ws.get_all_values()
     todos = rows_to_dicts(rows)  # ヘッダー除外
+    today = date.today()
     
     # 各タスクにstatusを計算して追加
     for todo in todos:
         todo["status"] = due_status(todo.get("due", ""))
+        
+        # 日付をMM/DD表示にし、期限切れフラグを追加
+        if todo.get("due"):
+            due_date = parse_ymd_safe(todo["due"])
+            if due_date:
+                todo["due_display"] = due_date.strftime("%m/%d")
+                todo["is_overdue"] = due_date < today
+            else:
+                todo["due_display"] = ""
+                todo["is_overdue"] = False
+        else:
+            todo["due_display"] = ""
+            todo["is_overdue"] = False
     
     return render_template("index.html", todos=todos)
 
@@ -252,3 +270,83 @@ def edit(todo_id):
         return redirect(url_for("index"))
 
     return render_template("edit.html", todo=current)
+
+def _post_to_slack(text: str) -> bool:
+    """Slack Incoming Webhook にポストする簡易関数"""
+    if not SLACK_WEBHOOK_URL:
+        # Webhook未設定なら何もしない（失敗扱いにしない）
+        return False
+    try:
+        res = requests.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
+        return res.ok
+    except Exception:
+        return False
+
+def _safe_parse_date(s: str):
+    """'YYYY-MM-DD' を date に。失敗時は None。"""
+    from datetime import datetime as _dt, date as _date
+    try:
+        return _dt.strptime((s or "").strip(), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def notify_upcoming_tasks():
+    """
+    スプレッドシートから期限を読み取り、
+    - 期限切れ（overdue）
+    - 今日（due today）
+    - 明日（due tomorrow）
+    をSlackにまとめて通知します。
+    """
+    from datetime import date, timedelta
+    ws = get_ws()
+    rows = ws.get_all_values()
+    todos = rows_to_dicts(rows)
+
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+
+    overdue = []
+    due_today = []
+    due_tomorrow = []
+
+    for t in todos:
+        d = _safe_parse_date(t.get("due", ""))
+        if not d:
+            continue
+        line = f"- {t.get('title','(no title)')}（期日: {t.get('due','-')} / タグ: {t.get('tags','-')}）"
+        if d < today:
+            overdue.append(line)
+        elif d == today:
+            due_today.append(line)
+        elif d == tomorrow:
+            due_tomorrow.append(line)
+
+    if not any([overdue, due_today, due_tomorrow]):
+        _post_to_slack("📋 リマインド対象のタスクはありません。")
+        return
+
+    msg_lines = ["📣 TODOリマインド"]
+    if overdue:
+        msg_lines.append("\n⚠️ 期限切れ")
+        msg_lines.extend(overdue)
+    if due_today:
+        msg_lines.append("\n🟡 今日締切")
+        msg_lines.extend(due_today)
+    if due_tomorrow:
+        msg_lines.append("\n🟢 明日締切")
+        msg_lines.extend(due_tomorrow)
+
+    _post_to_slack("\n".join(msg_lines))
+
+# Flask CLI コマンド: `flask --app app notify` で実行可能にする
+import click
+@app.cli.command("notify")
+def notify_cmd():
+    """Slackへ期限リマインドを送る"""
+    notify_upcoming_tasks()
+    click.echo("Sent reminders to Slack (if any).")
+
+if __name__ == "__main__":
+    from notify import notify_upcoming_tasks
+    notify_upcoming_tasks()
