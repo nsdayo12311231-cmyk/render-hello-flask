@@ -26,6 +26,74 @@ def due_status(due_text: str) -> str:
         return "due_today"
     return "upcoming"
 
+# === ここから下を app.py の既存コードの「importsの下あたり」に追記してください ===
+import requests
+
+def safe_parse_date(s: str):
+    from datetime import datetime
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+    return None
+
+def list_due_tasks(rows, days_ahead=1):
+    """
+    rows_to_dicts(rows) 済みの todo 配列を受け取り、
+    今日～days_ahead 日先までが期限のタスクを抽出して返す
+    """
+    from datetime import date, timedelta
+    today = date.today()
+    last = today + timedelta(days_ahead)
+    due_list = []
+    for t in rows_to_dicts(rows):
+        d = safe_parse_date(t.get("due", ""))
+        if d and today <= d <= last:
+            due_list.append(t)
+    return due_list
+
+def slack_notify(text: str) -> bool:
+    url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not url:
+        return False
+    try:
+        r = requests.post(url, json={"text": text}, timeout=10)
+        return r.ok
+    except Exception:
+        return False
+
+# 期限リマインドを手動/cronで叩く用のエンドポイント
+@app.get("/notify")
+def notify():
+    # 簡易キーで保護
+    expect = os.environ.get("NOTIFY_KEY", "")
+    got = request.args.get("key", "")
+    if expect and got != expect:
+        return ("forbidden", 403)
+
+    ws = get_ws()
+    rows = ws.get_all_values()
+    due = list_due_tasks(rows, days_ahead=1)  # 今日〜明日
+
+    if not due:
+        slack_notify(":white_check_mark: 期限が近いタスクはありません。")
+        return {"sent": True, "count": 0}
+
+    lines = [":alarm_clock: *期限が近いタスク*（今日〜明日）"]
+    for t in due:
+        title = t.get("title", "")
+        due_s = t.get("due", "-")
+        tags = t.get("tags", "")
+        tag_view = f" | タグ: {tags}" if tags else ""
+        lines.append(f"• {title}（期限: {due_s}{tag_view}）")
+
+    slack_notify("\n".join(lines))
+    return {"sent": True, "count": len(due)}
+# === 追記ここまで ===
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
 
