@@ -36,7 +36,10 @@
       <tr>
         <td>{{ t.title }}</td>
         <td>{{ t.content }}</td>
-        <td class="due {{ t.status }}">{{ t.due_raw }}</td>
+        <td class="due {{ t.status }}">
+          {% set due_label = t.due_date.strftime('%Y-%m-%d') if t.due_date else (t.due_raw or '-') %}
+          <span class="due-label">{{ due_label }}</span>
+        </td>
         <td>
           {% if t.status == "overdue" %}期限切れ
           {% elif t.status == "due_today" %}今日が期限

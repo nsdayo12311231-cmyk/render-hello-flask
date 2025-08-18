@@ -63,6 +63,16 @@ def parse_ymd(s: str):
     except Exception:
         return None
 
+# 1) 安全な日付パーサ
+def parse_ymd_safe(s: str | None):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
 
 
 @app.route("/", methods=["GET"])
@@ -94,7 +104,7 @@ def tasks():
         tags  = (r[4] if len(r) > 4 else "").strip()
         reminder = (r[5] if len(r) > 5 else "").strip()
         
-        d = parse_ymd(due_s)
+        d = parse_ymd_safe(due_s)
         
         # タグをリストに変換
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
