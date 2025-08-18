@@ -1,59 +1,76 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8">
   <title>タスク一覧</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 16px; }
-    .hint { color: #666; margin-bottom: 12px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-    th { background: #f7f7f7; }
-
-    /* 期日色分け */
-    .due.no_due   { background: #f2f2f2; color: #444; }
-    .due.upcoming { background: #e6ffed; color: #0a7a2a; }     /* 未来(余裕あり) */
-    .due.due_today{ background: #fff3bf; color: #7a5d00; }     /* 今日 */
-    .due.overdue  { background: #ffd6d6; color: #8a1f1f; }     /* 期限切れ */
+    body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial; line-height: 1.6; }
+    .container { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 28px; margin-bottom: 12px; }
+    p.note { color: #666; margin: 8px 0 16px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; font-weight: 600; }
+    /* 背景色（行ごと） */
+    tr.status-overdue  { background: #ffe5e5; }  /* 赤み: 期限切れ */
+    tr.status-due_today{ background: #fff7d6; }  /* 黄: 今日 */
+    tr.status-upcoming { background: #eaffea; }  /* 緑: 未来 */
+    tr.status-no_due   { background: #f3f4f6; }  /* 灰: 未設定 */
+    .muted { color: #6b7280; }
+    .backlink { margin-top: 16px; display: inline-block; }
   </style>
 </head>
 <body>
-  <h1>タスク一覧</h1>
-  <div class="hint">期日の背景色で状態を表示：赤=期限切れ、黄=今日、緑=未来、灰=未設定</div>
+  <div class="container">
+    <h1>タスク一覧</h1>
+    <p class="note">期日の背景色で状態を表示：<strong>赤=期限切れ</strong>、<strong>黄=今日</strong>、<strong>緑=未来</strong>、<strong>灰=未設定</strong></p>
 
-  <table>
-    <thead>
-      <tr>
-        <th>タイトル</th>
-        <th>内容</th>
-        <th>期日</th>
-        <th>状態</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in tasks %}
-      <tr>
-        <td>{{ t.title }}</td>
-        <td>{{ t.content }}</td>
-        <td class="due {{ t.status }}">
-          {% set due_label = t.due_date.strftime('%Y-%m-%d') if t.due_date else (t.due_raw or '-') %}
-          <span class="due-label">{{ due_label }}</span>
-        </td>
-        <td>
-          {% if t.status == "overdue" %}期限切れ
-          {% elif t.status == "due_today" %}今日が期限
-          {% elif t.status == "upcoming" %}未来
-          {% else %}未設定
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <table>
+      <thead>
+        <tr>
+          <th>タイトル</th>
+          <th>内容</th>
+          <th>期日</th>
+          <th>タグ</th>
+          <th>状態</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tasks %}
+        <tr class="status-{{ t.status }}">
+          <td>{{ t.title }}</td>
+          <td>{{ t.content }}</td>
+          <td>
+            {% if t.due_date %}
+              {{ t.due_date.strftime('%Y-%m-%d') }}
+            {% else %}
+              <span class="muted">{{ t.due_raw or '-' }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if t.tags %}
+              {% if t.tags is string %}
+                {{ t.tags }}
+              {% else %}
+                {{ t.tags|join(', ') }}
+              {% endif %}
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if t.status == 'overdue' %}期限切れ
+            {% elif t.status == 'due_today' %}今日
+            {% elif t.status == 'upcoming' %}未来
+            {% else %}未設定{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
 
-  <p style="margin-top:16px;">
-    <a href="/">← トップへ戻る</a>
-  </p>
+    <a class="backlink" href="{{ url_for('index') }}">← トップへ戻る</a>
+  </div>
 </body>
 </html>
